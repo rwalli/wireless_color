@@ -1,0 +1,77 @@
+--- a/modules/luci-mod-network/htdocs/luci-static/resources/view/network/wireless.js
++++ b/modules/luci-mod-network/htdocs/luci-static/resources/view/network/wireless.js
+@@ -21,6 +21,39 @@
+ 	return changes.reduce((count, [, id]) => count + (id === section_id), 0);
+ }
+ 
++// Tint the radios and their networks the way firewall zones tint interfaces
++const wifiColors = { radioSat: 75, radioLight: 80, netSat: 75, netLight: 80, netSpread: 40, lightModeBoost: 25, stripe: 17 };
++
++// One tint for both views, filling the overview badge and striping the station one
++const wifi_tint = hsl => `linear-gradient(hsl(${hsl} / .4), hsl(${hsl} / .3))`;
++const wifi_fill = hsl => hsl ? `background:${wifi_tint(hsl)}` : '';
++const wifi_stripe = hsl => hsl ? `background:${wifi_tint(hsl)} bottom/100% ${wifiColors.stripe}px no-repeat` : '';
++
++// Map the section names to colors, radios spread over the wheel, nets beside them
++function wifi_colors(radios, wifiNets) {
++	// The pale tints wash out on the light theme
++	const boost = s => (document.documentElement.getAttribute('data-darkmode') == 'true') ? s : Math.min(s + wifiColors.lightModeBoost, 100);
++	const color = (hue, sat, light) => `${hue} ${sat}% ${light}%`;
++	const byName = (a, b) => (a.getName() > b.getName()) ? 1 : -1;
++	const devices = (radios ?? []).slice().sort(byName);
++	const styles = {};
++
++	devices.forEach((radio, n) => {
++		const hue = 30 + n * 360 / devices.length;
++
++		styles[radio.getName()] = color(hue, boost(wifiColors.radioSat), wifiColors.radioLight);
++
++		(wifiNets ?? []).filter(net => net.getWifiDeviceName() == radio.getName()).sort(byName).forEach((net, i) => {
++			// 0, +1, -1, +2, -2 … keeps a network in the hue family of its radio
++			const offset = ((i + 1) >> 1) * wifiColors.netSpread * ((i % 2) ? 1 : -1);
++
++			styles[net.getName()] = color(hue + offset, boost(wifiColors.netSat), wifiColors.netLight);
++		});
++	});
++
++	return styles;
++}
++
+ function render_radio_badge(radioDev) {
+ 	return E('span', { 'class': 'ifacebadge' }, [
+ 		E('img', { 'src': L.resource('icons/wifi%s.svg').format(radioDev.isUp() ? '' : '_disabled') }),
+@@ -694,6 +727,7 @@
+ 
+ return view.extend({
+ 	poll_status: function(map, data) {
++		const styles = wifi_colors(data[1], data[2]);
+ 		const rows = map.querySelectorAll('.cbi-section-table-row[data-sid]');
+ 
+ 		rows.forEach(row => {
+@@ -715,6 +749,8 @@
+ 				dom.content(stat, render_network_status(radioNet));
+ 			}
+ 
++			badge.firstElementChild.setAttribute('style', wifi_fill(styles[section_id]));
++
+ 			if (stat.hasAttribute('restart'))
+ 				dom.content(stat, E('em', _('Device is restarting…')));
+ 
+@@ -747,6 +783,7 @@
+ 			let row = [
+ 				E('span', {
+ 					'class': 'ifacebadge',
++					'style': wifi_stripe(styles[bss.network.getName()]),
+ 					'data-ifname': bss.network.getIfname(),
+ 					'data-ssid': bss.network.getSSID()
+ 				}, [
+@@ -2598,6 +2635,9 @@
+ 			else
+ 				node.appendChild(render_network_badge(inst));
+ 
++			node.firstElementChild.setAttribute('style',
++				wifi_fill(wifi_colors(this.section.radios, this.section.wifis)[section_id]));
++
+ 			return node;
+ 		};
+ 
